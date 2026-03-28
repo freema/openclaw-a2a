@@ -13,6 +13,7 @@ const config: AppConfig = {
   host: '0.0.0.0',
   debug: false,
   publicUrl: 'http://localhost:3100',
+  model: 'openclaw',
   instances: [{ name: 'default', url: 'http://mock:18789', token: 'test', default: true }],
 };
 

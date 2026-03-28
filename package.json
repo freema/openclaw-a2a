@@ -1,0 +1,78 @@
+{
+  "name": "openclaw-a2a",
+  "version": "0.1.0-beta.1",
+  "description": "A2A v1.0 bridge for OpenClaw AI assistant — agent-to-agent communication",
+  "author": "Tomas Grasl <https://www.tomasgrasl.cz/>",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "openclaw-a2a": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "check": "npm run lint:fix && npm run typecheck",
+    "check:all": "npm run check && npm run test:run && npm run build",
+    "prepublishOnly": "npm run clean && npm run build",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:e2e": "vitest run --config tests/e2e/vitest.config.ts"
+  },
+  "keywords": [
+    "a2a",
+    "a2a-protocol",
+    "agent-to-agent",
+    "openclaw",
+    "ai-agent",
+    "bridge",
+    "google-a2a"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "uuid": "^11.1.0",
+    "yargs": "^17.7.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.11.0",
+    "@types/supertest": "^6.0.2",
+    "@types/uuid": "^10.0.0",
+    "@types/yargs": "^17.0.32",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.2.1",
+    "prettier": "^3.3.3",
+    "supertest": "^7.1.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3",
+    "vitest": "^2.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "homepage": "https://github.com/freema/openclaw-a2a#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/freema/openclaw-a2a.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "beta"
+  }
+}

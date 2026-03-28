@@ -1,0 +1,6 @@
+services:
+  a2a-bridge:
+    build: .
+    image: openclaw-a2a:dev
+    environment:
+      - DEBUG=true

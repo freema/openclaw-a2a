@@ -1,0 +1,30 @@
+// A2A v1.0 — SCREAMING_SNAKE_CASE enum values (per proto spec)
+
+export enum TaskState {
+  SUBMITTED = 'TASK_STATE_SUBMITTED',
+  PENDING = 'TASK_STATE_PENDING',
+  WORKING = 'TASK_STATE_WORKING',
+  COMPLETED = 'TASK_STATE_COMPLETED',
+  FAILED = 'TASK_STATE_FAILED',
+  CANCELED = 'TASK_STATE_CANCELED',
+  REJECTED = 'TASK_STATE_REJECTED',
+  INPUT_REQUIRED = 'TASK_STATE_INPUT_REQUIRED',
+  AUTH_REQUIRED = 'TASK_STATE_AUTH_REQUIRED',
+}
+
+export enum Role {
+  USER = 'ROLE_USER',
+  AGENT = 'ROLE_AGENT',
+}
+
+export const TERMINAL_STATES: ReadonlySet<TaskState> = new Set([
+  TaskState.COMPLETED,
+  TaskState.FAILED,
+  TaskState.CANCELED,
+  TaskState.REJECTED,
+]);
+
+export const INTERRUPTED_STATES: ReadonlySet<TaskState> = new Set([
+  TaskState.INPUT_REQUIRED,
+  TaskState.AUTH_REQUIRED,
+]);

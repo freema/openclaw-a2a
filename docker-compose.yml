@@ -1,0 +1,25 @@
+services:
+  a2a-bridge:
+    image: ghcr.io/freema/openclaw-a2a:latest
+    container_name: openclaw-a2a
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3100}:3100"
+    environment:
+      - OPENCLAW_URL=${OPENCLAW_URL:-http://host.docker.internal:18789}
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-}
+      - PUBLIC_URL=${PUBLIC_URL:-http://localhost:3100}
+      - PORT=3100
+      - DEBUG=${DEBUG:-false}
+      - NODE_ENV=production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    security_opt:
+      - no-new-privileges

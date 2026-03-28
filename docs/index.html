@@ -3,48 +3,174 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>openclaw-a2a — A2A v1.0 Bridge for OpenClaw</title>
+  <title>openclaw-a2a — A2A v1.0 Bridge for OpenClaw AI Assistant</title>
+  <meta name="description" content="Bridge that lets any A2A-compatible agent chat with your self-hosted OpenClaw AI assistant. Implements Google A2A protocol v1.0 with streaming, multi-turn conversations, and multi-instance routing.">
+  <meta name="keywords" content="A2A, agent-to-agent, OpenClaw, AI agent, A2A protocol, Google A2A, agent communication, MCP, bridge, streaming, JSON-RPC">
+  <meta name="author" content="Tomas Grasl">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://openclaw-a2a.cloud/">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="openclaw-a2a — A2A v1.0 Bridge for OpenClaw">
+  <meta property="og:description" content="Let any A2A-compatible agent chat with your OpenClaw AI assistant. Implements A2A protocol v1.0 with streaming and multi-turn support.">
+  <meta property="og:url" content="https://openclaw-a2a.cloud/">
+  <meta property="og:site_name" content="openclaw-a2a">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="openclaw-a2a — A2A v1.0 Bridge for OpenClaw">
+  <meta name="twitter:description" content="Let any A2A-compatible agent chat with your OpenClaw AI assistant. A2A protocol v1.0.">
+
+  <!-- JSON-LD Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "openclaw-a2a",
+    "description": "A2A v1.0 bridge for OpenClaw AI assistant — agent-to-agent communication",
+    "url": "https://openclaw-a2a.cloud",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Cross-platform",
+    "license": "https://opensource.org/licenses/MIT",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": { "@type": "Person", "name": "Tomas Grasl", "url": "https://www.tomasgrasl.cz" },
+    "codeRepository": "https://github.com/freema/openclaw-a2a",
+    "programmingLanguage": "TypeScript",
+    "softwareVersion": "0.1.0-beta.2"
+  }
+  </script>
+
+  <!-- GA4 -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-4YJNYJ8BWJ"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-4YJNYJ8BWJ');
+  </script>
+
   <style>
-    :root { --bg: #0d1117; --fg: #c9d1d9; --accent: #58a6ff; --muted: #8b949e; }
+    :root { --bg: #0d1117; --fg: #c9d1d9; --accent: #58a6ff; --muted: #8b949e; --card: #161b22; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--fg); max-width: 800px; margin: 0 auto; padding: 2rem; line-height: 1.6; }
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
-    h1 { font-size: 2rem; margin-bottom: 0.25rem; }
-    .subtitle { color: var(--muted); font-style: italic; margin-bottom: 2rem; }
-    .badge { display: inline-block; padding: 0.2em 0.6em; border-radius: 4px; font-size: 0.85rem; font-weight: 600; margin-right: 0.5rem; }
+    h1 { font-size: 2.2rem; margin-bottom: 0.25rem; }
+    h2 { margin-top: 2rem; margin-bottom: 0.75rem; font-size: 1.4rem; }
+    .subtitle { color: var(--muted); font-style: italic; margin-bottom: 1.5rem; font-size: 1.1rem; }
+    .badges { margin-bottom: 2rem; }
+    .badge { display: inline-block; padding: 0.2em 0.6em; border-radius: 4px; font-size: 0.85rem; font-weight: 600; margin-right: 0.5rem; margin-bottom: 0.3rem; }
     .badge-beta { background: #da3633; color: white; }
     .badge-a2a { background: #1f6feb; color: white; }
+    .badge-npm { background: #cb3837; color: white; }
+    .badge-docker { background: #2496ed; color: white; }
     ul { padding-left: 1.5rem; }
     li { margin: 0.5rem 0; }
-    code { background: #161b22; padding: 0.15em 0.4em; border-radius: 3px; font-size: 0.9em; }
-    .links { margin-top: 2rem; }
+    code { background: var(--card); padding: 0.15em 0.4em; border-radius: 3px; font-size: 0.9em; }
+    pre { background: var(--card); padding: 1rem; border-radius: 6px; overflow-x: auto; margin: 1rem 0; font-size: 0.85rem; }
+    .card { background: var(--card); border-radius: 8px; padding: 1.25rem; margin: 1rem 0; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+    @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } body { padding: 1rem; } }
+    .diagram { color: var(--accent); font-family: monospace; white-space: pre; font-size: 0.8rem; line-height: 1.4; overflow-x: auto; }
+    footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #30363d; color: var(--muted); font-size: 0.85rem; }
   </style>
 </head>
 <body>
-  <h1>openclaw-a2a</h1>
-  <p class="subtitle">What happens when AI agents start talking to each other? Let's find out.</p>
-  <p>
-    <span class="badge badge-beta">BETA</span>
-    <span class="badge badge-a2a">A2A v1.0</span>
-  </p>
+  <header>
+    <h1>openclaw-a2a</h1>
+    <p class="subtitle">What happens when AI agents start talking to each other? Let's find out.</p>
+    <div class="badges">
+      <span class="badge badge-beta">BETA</span>
+      <span class="badge badge-a2a">A2A v1.0</span>
+      <a href="https://www.npmjs.com/package/openclaw-a2a" class="badge badge-npm">npm</a>
+      <a href="https://github.com/freema/openclaw-a2a/pkgs/container/openclaw-a2a" class="badge badge-docker">Docker</a>
+    </div>
+  </header>
 
-  <h2>Documentation</h2>
-  <ul>
-    <li><a href="installation.md">Installation</a> — setup, prerequisites, OpenClaw Gateway config</li>
-    <li><a href="configuration.md">Configuration</a> — env vars, CLI options, multi-instance</li>
-    <li><a href="deployment.md">Deployment</a> — Docker, reverse proxy</li>
-    <li><a href="development.md">Development</a> — local dev, testing, contributing</li>
-    <li><a href="a2a-protocol.md">A2A Protocol</a> — v1.0 spec overview, task lifecycle, streaming</li>
-  </ul>
+  <section>
+    <h2>What is this?</h2>
+    <p>A bridge that lets any <a href="https://google.github.io/A2A/">A2A-compatible</a> agent chat with your self-hosted <a href="https://openclaw.ai">OpenClaw</a> AI assistant. Think of it as giving your OpenClaw a phone number that other agents can call.</p>
+    <div class="card">
+      <div class="diagram">Google ADK Agent ---+
+CrewAI Agent ------+-- A2A Protocol --> openclaw-a2a --> OpenClaw Gateway
+Custom Agent ------+                         |
+Claude.ai* --------+                    (streaming!)
 
-  <div class="links">
+* via A2A-MCP bridge</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Quick Install</h2>
+    <div class="grid">
+      <div class="card">
+        <strong>npm</strong>
+        <pre>npm install -g openclaw-a2a@beta
+openclaw-a2a --openclaw-url http://127.0.0.1:18789</pre>
+      </div>
+      <div class="card">
+        <strong>Docker</strong>
+        <pre>docker pull ghcr.io/freema/openclaw-a2a:beta
+docker run -p 3100:3100 \
+  -e OPENCLAW_URL=http://host.docker.internal:18789 \
+  ghcr.io/freema/openclaw-a2a:beta</pre>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Documentation</h2>
+    <ul>
+      <li><a href="installation.md">Installation</a> &mdash; setup, prerequisites, OpenClaw Gateway config</li>
+      <li><a href="configuration.md">Configuration</a> &mdash; env vars, CLI options, multi-instance routing</li>
+      <li><a href="deployment.md">Deployment</a> &mdash; Docker, Kubernetes, reverse proxy</li>
+      <li><a href="development.md">Development</a> &mdash; local dev, testing, contributing</li>
+      <li><a href="a2a-protocol.md">A2A Protocol</a> &mdash; v1.0 spec overview, task lifecycle, streaming</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Features</h2>
+    <div class="grid">
+      <div class="card">
+        <strong>A2A v1.0 Compliant</strong>
+        <p>PascalCase methods, SCREAMING_SNAKE enums, field presence discrimination. Implemented from the proto spec.</p>
+      </div>
+      <div class="card">
+        <strong>Real-time Streaming</strong>
+        <p>SSE streaming from OpenClaw Gateway through A2A protocol with 15s heartbeat keep-alive.</p>
+      </div>
+      <div class="card">
+        <strong>Multi-instance</strong>
+        <p>Route requests to different OpenClaw instances based on message metadata.</p>
+      </div>
+      <div class="card">
+        <strong>Multi-turn</strong>
+        <p>Conversation continuity via contextId and taskId on messages.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Who Can Talk To This?</h2>
+    <p>Native A2A clients: <strong>Google ADK</strong>, <strong>CrewAI</strong>, <strong>Microsoft Agent Framework</strong>, <strong>BeeAI</strong>, <strong>LangGraph</strong>, or any HTTP client.</p>
+    <p>Claude users: via <a href="https://github.com/GongRzhe/A2A-MCP-Server">A2A-MCP bridge</a> (Claude speaks MCP, not A2A... yet).</p>
+  </section>
+
+  <section>
     <h2>Links</h2>
     <ul>
       <li><a href="https://github.com/freema/openclaw-a2a">GitHub Repository</a></li>
       <li><a href="https://www.npmjs.com/package/openclaw-a2a">npm Package</a></li>
+      <li><a href="https://github.com/freema/openclaw-a2a/pkgs/container/openclaw-a2a">Docker Image (GHCR)</a></li>
       <li><a href="https://github.com/freema/openclaw-mcp">Sister Project: openclaw-mcp</a></li>
       <li><a href="https://google.github.io/A2A/">A2A Protocol Spec</a></li>
     </ul>
-  </div>
+  </section>
+
+  <footer>
+    <p>MIT License &middot; <a href="https://github.com/freema/openclaw-a2a">freema/openclaw-a2a</a> &middot; Sister project of <a href="https://openclaw-mcp.cloud">openclaw-mcp</a></p>
+  </footer>
 </body>
 </html>

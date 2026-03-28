@@ -267,6 +267,10 @@ Full docs at **[openclaw-a2a.cloud](https://openclaw-a2a.cloud)**
 - [Development](https://openclaw-a2a.cloud/development.md)
 - [A2A Protocol](https://openclaw-a2a.cloud/a2a-protocol.md)
 
+## Author
+
+**Tomas Grasl** — [tomasgrasl.cz](https://www.tomasgrasl.cz)
+
 ## License
 
 MIT

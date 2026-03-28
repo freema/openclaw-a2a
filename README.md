@@ -8,6 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Status: Beta](https://img.shields.io/badge/status-beta-orange)
 ![A2A: v1.0](https://img.shields.io/badge/A2A-v1.0-blue)
+[![Docs](https://img.shields.io/badge/docs-openclaw--a2a.cloud-blue)](https://openclaw-a2a.cloud)
 
 **openclaw-a2a** is a bridge that lets any A2A-compatible agent chat with your
 self-hosted [OpenClaw](https://openclaw.ai) assistant. Think of it as giving your
@@ -255,6 +256,16 @@ A2A  = how AGENTS talk to EACH OTHER  (horizontal: agent ↔ agent)
 ```
 
 They're complementary, not competing.
+
+## Documentation
+
+Full docs at **[openclaw-a2a.cloud](https://openclaw-a2a.cloud)**
+
+- [Installation](https://openclaw-a2a.cloud/installation.md)
+- [Configuration](https://openclaw-a2a.cloud/configuration.md)
+- [Deployment](https://openclaw-a2a.cloud/deployment.md)
+- [Development](https://openclaw-a2a.cloud/development.md)
+- [A2A Protocol](https://openclaw-a2a.cloud/a2a-protocol.md)
 
 ## License
 

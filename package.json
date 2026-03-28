@@ -1,6 +1,6 @@
 {
   "name": "openclaw-a2a",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "description": "A2A v1.0 bridge for OpenClaw AI assistant — agent-to-agent communication",
   "author": "Tomas Grasl <https://www.tomasgrasl.cz/>",
   "license": "MIT",
@@ -66,7 +66,7 @@
     "README.md",
     "LICENSE"
   ],
-  "homepage": "https://github.com/freema/openclaw-a2a#readme",
+  "homepage": "https://openclaw-a2a.cloud",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/freema/openclaw-a2a.git"

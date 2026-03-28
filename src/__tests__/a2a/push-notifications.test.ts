@@ -12,6 +12,7 @@ describe('Push Notification Handlers', () => {
     host: '127.0.0.1',
     debug: false,
     publicUrl: 'http://localhost:3100',
+    model: 'openclaw',
     instances: [{ name: 'default', url: 'http://mock:18789', token: 'test', default: true }],
   };
 

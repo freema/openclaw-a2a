@@ -1,6 +1,6 @@
 {
   "name": "openclaw-a2a",
-  "version": "0.1.0-beta.2",
+  "version": "0.1.0-beta.3",
   "description": "A2A v1.0 bridge for OpenClaw AI assistant — agent-to-agent communication",
   "author": "Tomas Grasl <https://www.tomasgrasl.cz/>",
   "license": "MIT",

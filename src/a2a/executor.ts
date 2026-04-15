@@ -35,7 +35,7 @@ export class OpenClawExecutor {
   private getClient(instance: InstanceConfig): OpenClawClient {
     let client = this.clients.get(instance.name);
     if (!client) {
-      client = new OpenClawClient(instance);
+      client = new OpenClawClient(instance, undefined, this.config.model);
       this.clients.set(instance.name, client);
     }
     return client;

@@ -12,6 +12,7 @@ describe('Health & Info (Integration)', () => {
     host: '127.0.0.1',
     debug: false,
     publicUrl: 'http://localhost:3100',
+    model: 'openclaw',
     instances: [
       { name: 'prod', url: 'http://prod:18789', token: 'secret-token', default: true },
       { name: 'staging', url: 'http://staging:18789', token: 'other-secret' },

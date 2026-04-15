@@ -21,11 +21,13 @@ export class OpenClawClient {
   private baseUrl: string;
   private token: string;
   private timeout: number;
+  private model: string;
 
-  constructor(instance: InstanceConfig, timeout = DEFAULT_TIMEOUT) {
+  constructor(instance: InstanceConfig, timeout = DEFAULT_TIMEOUT, model = 'openclaw') {
     this.baseUrl = instance.url.replace(/\/+$/, '');
     this.token = instance.token;
     this.timeout = timeout;
+    this.model = model;
   }
 
   async health(): Promise<{ status: string }> {
@@ -41,7 +43,7 @@ export class OpenClawClient {
   async chat(message: string): Promise<OpenClawChatResponse> {
     const url = `${this.baseUrl}/v1/chat/completions`;
     const body = {
-      model: 'openclaw',
+      model: this.model,
       messages: [{ role: 'user', content: message }],
       stream: false,
     };
@@ -98,7 +100,7 @@ export class OpenClawClient {
   ): AsyncGenerator<string, void, undefined> {
     const url = `${this.baseUrl}/v1/chat/completions`;
     const body = {
-      model: 'openclaw',
+      model: this.model,
       messages: [{ role: 'user', content: message }],
       stream: true,
     };

@@ -12,6 +12,7 @@ export interface AppConfig {
   host: string;
   debug: boolean;
   publicUrl: string;
+  model: string;
   instances: InstanceConfig[];
 }
 
@@ -61,9 +62,10 @@ export function loadConfig(): AppConfig {
   const host = process.env.HOST ?? '0.0.0.0';
   const debug = process.env.DEBUG === 'true';
   const publicUrl = (process.env.PUBLIC_URL ?? `http://localhost:${port}`).replace(/\/+$/, '');
+  const model = process.env.OPENCLAW_MODEL ?? 'openclaw';
   const instances = parseInstances();
 
-  return { port, host, debug, publicUrl, instances };
+  return { port, host, debug, publicUrl, model, instances };
 }
 
 export function getDefaultInstance(config: AppConfig): InstanceConfig {

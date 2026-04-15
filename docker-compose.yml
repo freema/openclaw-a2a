@@ -8,6 +8,7 @@ services:
     environment:
       - OPENCLAW_URL=${OPENCLAW_URL:-http://host.docker.internal:18789}
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-}
+      - OPENCLAW_MODEL=${OPENCLAW_MODEL:-openclaw}
       - PUBLIC_URL=${PUBLIC_URL:-http://localhost:3100}
       - PORT=3100
       - DEBUG=${DEBUG:-false}

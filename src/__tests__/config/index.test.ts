@@ -83,6 +83,24 @@ describe('Config', () => {
     expect(config.debug).toBe(true);
   });
 
+  it('parses A2A_AUTH_TOKEN into authToken', () => {
+    process.env.OPENCLAW_URL = 'http://localhost:18789';
+    process.env.A2A_AUTH_TOKEN = 'secret';
+    expect(loadConfig().authToken).toBe('secret');
+  });
+
+  it('leaves authToken undefined when unset', () => {
+    process.env.OPENCLAW_URL = 'http://localhost:18789';
+    delete process.env.A2A_AUTH_TOKEN;
+    expect(loadConfig().authToken).toBeUndefined();
+  });
+
+  it('parses A2A_CARD_SIGNING_KEY into cardSigningKey', () => {
+    process.env.OPENCLAW_URL = 'http://localhost:18789';
+    process.env.A2A_CARD_SIGNING_KEY = 'pem-here';
+    expect(loadConfig().cardSigningKey).toBe('pem-here');
+  });
+
   it('getDefaultInstance returns the default', () => {
     process.env.OPENCLAW_URL = 'http://localhost:18789';
     const config = loadConfig();

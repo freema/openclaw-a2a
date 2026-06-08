@@ -157,7 +157,19 @@ describe('A2A Endpoints (Integration)', () => {
   });
 
   describe('Push notifications', () => {
-    it('returns PUSH_NOTIFICATION_NOT_SUPPORTED', async () => {
+    it('CreateTaskPushNotificationConfig stores and returns the config', async () => {
+      const created = await request(app)
+        .post('/a2a')
+        .set('A2A-Version', '1.0')
+        .send({
+          jsonrpc: '2.0',
+          id: '1',
+          method: 'SendMessage',
+          params: { message: { messageId: 'pn-1', role: 'ROLE_USER', parts: [{ text: 'hi' }] } },
+        });
+      const taskId = created.body.result.id;
+
+      const url = 'http://callback.example.com/hook';
       const res = await request(app)
         .post('/a2a')
         .set('A2A-Version', '1.0')
@@ -165,10 +177,12 @@ describe('A2A Endpoints (Integration)', () => {
           jsonrpc: '2.0',
           id: '1',
           method: 'CreateTaskPushNotificationConfig',
-          params: { taskId: 't1', pushNotificationConfig: { taskId: 't1', url: 'http://x' } },
+          params: { taskId, pushNotificationConfig: { taskId, url } },
         });
 
-      expect(res.body.error.code).toBe(-32003);
+      expect(res.body.error).toBeUndefined();
+      expect(res.body.result.id).toBeDefined();
+      expect(res.body.result.url).toBe(url);
     });
   });
 });

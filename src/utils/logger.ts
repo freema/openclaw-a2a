@@ -20,6 +20,10 @@ export function log(message: string, data?: Record<string, unknown>) {
   console.log(formatLog('info', message, data));
 }
 
+export function logWarn(message: string, data?: Record<string, unknown>) {
+  console.warn(formatLog('warn', message, data));
+}
+
 export function logError(message: string, error?: unknown, data?: Record<string, unknown>) {
   const extra: Record<string, unknown> = { ...data };
   if (error instanceof Error) {

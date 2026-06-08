@@ -6,26 +6,46 @@ import { AppConfig } from '../config/index.js';
 import { logDebug, logError } from '../utils/logger.js';
 import { A2AError, A2A_ERROR_CODES } from './errors.js';
 import { ExecutionEventBus } from './event-bus.js';
+import { TaskEventRegistry } from './event-registry.js';
 import { OpenClawExecutor, RequestContext } from './executor.js';
+import { InMemoryPushNotificationStore } from './push-store.js';
+import { PushNotificationSender } from './push-sender.js';
 import { formatSSEEvent, SSE_HEADERS } from './sse.js';
 import { InMemoryTaskStore } from './task-store.js';
+import { assertSafeWebhookUrl } from './webhook-url.js';
 import { Task } from './types/core.js';
 import { TaskState } from './types/enums.js';
 import { TERMINAL_STATES } from './types/enums.js';
 import {
   A2AMethod,
   CancelTaskRequest,
+  CreateTaskPushNotificationConfigRequest,
+  DeleteTaskPushNotificationConfigRequest,
+  GetTaskPushNotificationConfigRequest,
   GetTaskRequest,
+  ListTaskPushNotificationConfigsRequest,
+  ListTaskPushNotificationConfigsResponse,
   ListTasksRequest,
   SendMessageRequest,
+  SubscribeToTaskRequest,
+  TaskPushNotificationConfig,
 } from './types/requests.js';
 import { JSONRPCRequest, JSONRPCResponse } from './types/jsonrpc.js';
 
-export function createRequestHandler(
-  config: AppConfig,
-  taskStore: InMemoryTaskStore,
-  executor: OpenClawExecutor
-) {
+const MAX_PUSH_CONFIGS_PER_TASK = 10;
+
+export interface HandlerDeps {
+  config: AppConfig;
+  taskStore: InMemoryTaskStore;
+  executor: OpenClawExecutor;
+  pushStore: InMemoryPushNotificationStore;
+  pushSender: PushNotificationSender;
+  registry: TaskEventRegistry;
+}
+
+export function createRequestHandler(deps: HandlerDeps) {
+  const { config, taskStore, executor, pushStore, registry } = deps;
+
   return async (req: Request, res: Response) => {
     try {
       // Validate A2A-Version
@@ -40,10 +60,10 @@ export function createRequestHandler(
 
       switch (method) {
         case 'SendMessage':
-          return await handleSendMessage(rpcReq, res, config, taskStore, executor);
+          return await handleSendMessage(rpcReq, res, deps);
 
         case 'SendStreamingMessage':
-          return await handleSendStreamingMessage(rpcReq, res, config, taskStore, executor);
+          return await handleSendStreamingMessage(rpcReq, res, deps);
 
         case 'GetTask':
           return handleGetTask(rpcReq, res, taskStore);
@@ -55,18 +75,19 @@ export function createRequestHandler(
           return handleCancelTask(rpcReq, res, taskStore, executor);
 
         case 'SubscribeToTask':
-          return handleSubscribeToTask(rpcReq, res);
+          return handleSubscribeToTask(rpcReq, res, taskStore, registry);
 
         case 'CreateTaskPushNotificationConfig':
+          return handleCreatePushConfig(rpcReq, res, taskStore, pushStore, config);
+
         case 'GetTaskPushNotificationConfig':
+          return handleGetPushConfig(rpcReq, res, pushStore);
+
         case 'ListTaskPushNotificationConfigs':
+          return handleListPushConfigs(rpcReq, res, pushStore);
+
         case 'DeleteTaskPushNotificationConfig':
-          return sendJsonRpcError(
-            res,
-            rpcReq.id,
-            A2A_ERROR_CODES.PUSH_NOTIFICATION_NOT_SUPPORTED,
-            'Push notifications are not supported'
-          );
+          return handleDeletePushConfig(rpcReq, res, pushStore);
 
         case 'GetExtendedAgentCard':
           return sendJsonRpcError(
@@ -135,13 +156,8 @@ function parseJsonRpcRequest(body: any): JSONRPCRequest {
 
 // --- Handlers ---
 
-async function handleSendMessage(
-  rpcReq: JSONRPCRequest,
-  res: Response,
-  config: AppConfig,
-  taskStore: InMemoryTaskStore,
-  executor: OpenClawExecutor
-) {
+async function handleSendMessage(rpcReq: JSONRPCRequest, res: Response, deps: HandlerDeps) {
+  const { config, taskStore, executor, pushStore, pushSender, registry } = deps;
   const params = rpcReq.params as SendMessageRequest;
   if (!params?.message) {
     return sendJsonRpcError(
@@ -154,6 +170,10 @@ async function handleSendMessage(
 
   const context = createTaskContext(params, taskStore);
   const eventBus = new ExecutionEventBus();
+
+  registerInlinePushConfig(params, context.task.id, pushStore, config);
+  pushSender.attach(context.task.id, eventBus);
+  registry.register(context.task.id, eventBus);
 
   // Execute synchronously — wait for completion
   await executor.execute(context, eventBus);
@@ -166,10 +186,9 @@ async function handleSendMessage(
 async function handleSendStreamingMessage(
   rpcReq: JSONRPCRequest,
   res: Response,
-  config: AppConfig,
-  taskStore: InMemoryTaskStore,
-  executor: OpenClawExecutor
+  deps: HandlerDeps
 ) {
+  const { config, taskStore, executor, pushStore, pushSender, registry } = deps;
   const params = rpcReq.params as SendMessageRequest;
   if (!params?.message) {
     return sendJsonRpcError(
@@ -183,11 +202,16 @@ async function handleSendStreamingMessage(
   const context = createTaskContext(params, taskStore);
   const eventBus = new ExecutionEventBus();
 
+  registerInlinePushConfig(params, context.task.id, pushStore, config);
+  pushSender.attach(context.task.id, eventBus);
+  registry.register(context.task.id, eventBus);
+
   // Set SSE headers
   res.writeHead(200, SSE_HEADERS);
 
   // Subscribe to events and forward as SSE
   eventBus.on((event) => {
+    if (res.writableEnded) return;
     const rpcResponse: JSONRPCResponse = {
       jsonrpc: '2.0',
       id: rpcReq.id,
@@ -197,7 +221,12 @@ async function handleSendStreamingMessage(
   });
 
   eventBus.onFinish(() => {
-    res.end();
+    if (!res.writableEnded) res.end();
+  });
+
+  // Cancel the task if the client disconnects mid-stream (stop wasting upstream work).
+  res.on('close', () => {
+    if (!eventBus.finished) executor.cancelTask(context.task.id);
   });
 
   // Execute streaming (fire and forget — events are pushed via SSE)
@@ -280,16 +309,180 @@ function handleCancelTask(
   return sendJsonRpcResult(res, rpcReq.id, task);
 }
 
-function handleSubscribeToTask(rpcReq: JSONRPCRequest, res: Response) {
-  return sendJsonRpcError(
-    res,
-    rpcReq.id,
-    A2A_ERROR_CODES.UNSUPPORTED_OPERATION,
-    'SubscribeToTask is not yet supported'
-  );
+// --- Resubscribe ---
+
+function handleSubscribeToTask(
+  rpcReq: JSONRPCRequest,
+  res: Response,
+  taskStore: InMemoryTaskStore,
+  registry: TaskEventRegistry
+) {
+  const params = rpcReq.params as SubscribeToTaskRequest;
+  if (!params?.id) {
+    return sendJsonRpcError(res, rpcReq.id, A2A_ERROR_CODES.INVALID_PARAMS, 'Missing task id');
+  }
+
+  const task = taskStore.get(params.id);
+  if (!task) {
+    return sendJsonRpcError(
+      res,
+      rpcReq.id,
+      A2A_ERROR_CODES.TASK_NOT_FOUND,
+      `Task not found: ${params.id}`
+    );
+  }
+
+  res.writeHead(200, SSE_HEADERS);
+
+  // First event = current task state (prevents the get/subscribe race per spec)
+  res.write(formatSSEEvent({ jsonrpc: '2.0', id: rpcReq.id, result: { task } }));
+
+  const bus = registry.get(params.id);
+  if (TERMINAL_STATES.has(task.status.state) || !bus) {
+    // Already terminal (or no live execution) — nothing more to stream.
+    res.end();
+    return;
+  }
+
+  const off = bus.on((event) => {
+    if (!res.writableEnded) {
+      res.write(formatSSEEvent({ jsonrpc: '2.0', id: rpcReq.id, result: event }));
+    }
+  });
+  const offFinish = bus.onFinish(() => {
+    if (!res.writableEnded) res.end();
+  });
+  // Detach both listeners on client disconnect (avoid writing to a dead socket / leaks).
+  res.on('close', () => {
+    off();
+    offFinish();
+  });
+}
+
+// --- Push notification config ---
+
+function handleCreatePushConfig(
+  rpcReq: JSONRPCRequest,
+  res: Response,
+  taskStore: InMemoryTaskStore,
+  pushStore: InMemoryPushNotificationStore,
+  config: AppConfig
+) {
+  const params = rpcReq.params as CreateTaskPushNotificationConfigRequest;
+  if (!params?.taskId || !params.pushNotificationConfig?.url) {
+    return sendJsonRpcError(
+      res,
+      rpcReq.id,
+      A2A_ERROR_CODES.INVALID_PARAMS,
+      'Missing taskId or pushNotificationConfig.url'
+    );
+  }
+  // SSRF guard — throws A2AError (INVALID_PARAMS) on unsafe URLs.
+  assertSafeWebhookUrl(params.pushNotificationConfig.url, config.pushAllowedHosts);
+  // Spec: configs are scoped to an existing task; this also blocks arbitrary-id memory growth.
+  if (!taskStore.get(params.taskId)) {
+    return sendJsonRpcError(
+      res,
+      rpcReq.id,
+      A2A_ERROR_CODES.TASK_NOT_FOUND,
+      `Task not found: ${params.taskId}`
+    );
+  }
+  if (pushStore.list(params.taskId).length >= MAX_PUSH_CONFIGS_PER_TASK) {
+    return sendJsonRpcError(
+      res,
+      rpcReq.id,
+      A2A_ERROR_CODES.INVALID_PARAMS,
+      `Too many push configs for task (max ${MAX_PUSH_CONFIGS_PER_TASK})`
+    );
+  }
+  const stored = pushStore.create(params.taskId, params.pushNotificationConfig);
+  return sendJsonRpcResult(res, rpcReq.id, stored);
+}
+
+function handleGetPushConfig(
+  rpcReq: JSONRPCRequest,
+  res: Response,
+  pushStore: InMemoryPushNotificationStore
+) {
+  const params = rpcReq.params as GetTaskPushNotificationConfigRequest;
+  if (!params?.taskId || !params.id) {
+    return sendJsonRpcError(res, rpcReq.id, A2A_ERROR_CODES.INVALID_PARAMS, 'Missing taskId or id');
+  }
+  const config = pushStore.get(params.taskId, params.id);
+  if (!config) {
+    return sendJsonRpcError(
+      res,
+      rpcReq.id,
+      A2A_ERROR_CODES.TASK_NOT_FOUND,
+      `Push notification config not found: ${params.id}`
+    );
+  }
+  return sendJsonRpcResult(res, rpcReq.id, redactConfig(config));
+}
+
+function handleListPushConfigs(
+  rpcReq: JSONRPCRequest,
+  res: Response,
+  pushStore: InMemoryPushNotificationStore
+) {
+  const params = rpcReq.params as ListTaskPushNotificationConfigsRequest;
+  if (!params?.taskId) {
+    return sendJsonRpcError(res, rpcReq.id, A2A_ERROR_CODES.INVALID_PARAMS, 'Missing taskId');
+  }
+  const response: ListTaskPushNotificationConfigsResponse = {
+    configs: pushStore.list(params.taskId).map(redactConfig),
+  };
+  return sendJsonRpcResult(res, rpcReq.id, response);
+}
+
+/** Strip webhook secrets (token, credentials) before returning a config to a reader. */
+function redactConfig(config: TaskPushNotificationConfig): TaskPushNotificationConfig {
+  const { token: _token, authentication, ...rest } = config;
+  return {
+    ...rest,
+    ...(authentication ? { authentication: { schemes: authentication.schemes } } : {}),
+  };
+}
+
+function handleDeletePushConfig(
+  rpcReq: JSONRPCRequest,
+  res: Response,
+  pushStore: InMemoryPushNotificationStore
+) {
+  const params = rpcReq.params as DeleteTaskPushNotificationConfigRequest;
+  if (!params?.taskId || !params.id) {
+    return sendJsonRpcError(res, rpcReq.id, A2A_ERROR_CODES.INVALID_PARAMS, 'Missing taskId or id');
+  }
+  const deleted = pushStore.delete(params.taskId, params.id);
+  if (!deleted) {
+    return sendJsonRpcError(
+      res,
+      rpcReq.id,
+      A2A_ERROR_CODES.TASK_NOT_FOUND,
+      `Push notification config not found: ${params.id}`
+    );
+  }
+  return sendJsonRpcResult(res, rpcReq.id, {});
 }
 
 // --- Task context creation ---
+
+function registerInlinePushConfig(
+  params: SendMessageRequest,
+  taskId: string,
+  pushStore: InMemoryPushNotificationStore,
+  config: AppConfig
+) {
+  const inline = params.configuration?.pushNotificationConfig;
+  if (!inline?.url) return;
+  // SSRF guard — throws A2AError on unsafe URLs (rejects the whole request).
+  assertSafeWebhookUrl(inline.url, config.pushAllowedHosts);
+  // Dedup: a multi-turn conversation re-using the same task must not stack duplicate
+  // webhooks (which would multiply deliveries). Same URL already registered → no-op.
+  if (pushStore.list(taskId).some((c) => c.url === inline.url)) return;
+  pushStore.create(taskId, inline);
+}
 
 function createTaskContext(
   params: SendMessageRequest,

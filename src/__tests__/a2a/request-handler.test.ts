@@ -74,34 +74,37 @@ describe('Request Handler — JSON-RPC Dispatch', () => {
       expect(res.body.error.code).toBe(-32001); // TASK_NOT_FOUND
     });
 
-    it('dispatches SubscribeToTask', async () => {
+    it('dispatches SubscribeToTask — TASK_NOT_FOUND for unknown id', async () => {
       const res = await sendRpc('SubscribeToTask', { id: 'task-1' });
-      expect(res.body.error.code).toBe(-32004); // UNSUPPORTED_OPERATION
+      expect(res.body.error.code).toBe(-32001); // TASK_NOT_FOUND
     });
   });
 
   describe('Push notification methods', () => {
-    it('dispatches CreateTaskPushNotificationConfig', async () => {
+    it('CreateTaskPushNotificationConfig returns a stored config', async () => {
+      const created = await sendMessage();
+      const taskId = created.body.result.id;
       const res = await sendRpc('CreateTaskPushNotificationConfig', {
-        taskId: 't1',
-        pushNotificationConfig: { taskId: 't1', url: 'http://x' },
+        taskId,
+        pushNotificationConfig: { taskId, url: 'http://callback.example.com' },
       });
-      expect(res.body.error.code).toBe(-32003); // PUSH_NOTIFICATION_NOT_SUPPORTED
+      expect(res.body.error).toBeUndefined();
+      expect(res.body.result.id).toBeDefined();
     });
 
-    it('dispatches GetTaskPushNotificationConfig', async () => {
-      const res = await sendRpc('GetTaskPushNotificationConfig', { id: 'c1', taskId: 't1' });
-      expect(res.body.error.code).toBe(-32003);
+    it('GetTaskPushNotificationConfig — TASK_NOT_FOUND for unknown config', async () => {
+      const res = await sendRpc('GetTaskPushNotificationConfig', { id: 'c1', taskId: 'tX' });
+      expect(res.body.error.code).toBe(-32001);
     });
 
-    it('dispatches ListTaskPushNotificationConfigs', async () => {
-      const res = await sendRpc('ListTaskPushNotificationConfigs', { taskId: 't1' });
-      expect(res.body.error.code).toBe(-32003);
+    it('ListTaskPushNotificationConfigs returns a configs array', async () => {
+      const res = await sendRpc('ListTaskPushNotificationConfigs', { taskId: 'tX' });
+      expect(res.body.result.configs).toEqual([]);
     });
 
-    it('dispatches DeleteTaskPushNotificationConfig', async () => {
-      const res = await sendRpc('DeleteTaskPushNotificationConfig', { id: 'c1', taskId: 't1' });
-      expect(res.body.error.code).toBe(-32003);
+    it('DeleteTaskPushNotificationConfig — TASK_NOT_FOUND for unknown config', async () => {
+      const res = await sendRpc('DeleteTaskPushNotificationConfig', { id: 'c1', taskId: 'tX' });
+      expect(res.body.error.code).toBe(-32001);
     });
   });
 

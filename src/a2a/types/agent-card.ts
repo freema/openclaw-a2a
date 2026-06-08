@@ -15,6 +15,13 @@ export interface AgentCard {
   securitySchemes?: Record<string, SecurityScheme>;
   security?: SecurityRequirement[];
   extensions?: AgentExtension[];
+  signatures?: AgentCardSignature[]; // v1.0: detached JWS signatures over the card
+}
+
+export interface AgentCardSignature {
+  protected: string; // base64url(JWS protected header)
+  signature: string; // base64url(signature)
+  header?: Record<string, unknown>; // optional unprotected header
 }
 
 export interface AgentProvider {

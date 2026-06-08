@@ -12,7 +12,7 @@ import { logDebug, logError } from '../utils/logger.js';
 import { A2AError, A2A_ERROR_CODES } from './errors.js';
 import { ExecutionEventBus } from './event-bus.js';
 import { InMemoryTaskStore } from './task-store.js';
-import { Task, Message, TaskStatus } from './types/core.js';
+import { Artifact, Task, Message, TaskStatus } from './types/core.js';
 import { TaskState, Role } from './types/enums.js';
 
 const HEARTBEAT_INTERVAL = 15_000;
@@ -98,23 +98,17 @@ export class OpenClawExecutor {
         return;
       }
 
+      // Experimental: relay this answer to a second instance (sync, one-hop)
+      const artifact = await this.maybeRelay(userMessage.metadata, instance, content);
+
       // Publish artifact
-      eventBus.publish({
-        artifactUpdate: {
-          taskId: task.id,
-          contextId,
-          artifact: {
-            artifactId: uuid(),
-            parts: [{ text: content }],
-          },
-        },
-      });
+      eventBus.publish({ artifactUpdate: { taskId: task.id, contextId, artifact } });
 
       // Update task in store
-      task.artifacts = [{ artifactId: uuid(), parts: [{ text: content }] }];
+      task.artifacts = [artifact];
 
-      // Multi-turn: detect if input is required
-      if (this.isInputRequired(content)) {
+      // Multi-turn: detect if input is required (skipped for relayed responses)
+      if (!artifact.metadata?.relay && this.isInputRequired(content)) {
         this.publishStatus(eventBus, task.id, contextId, TaskState.INPUT_REQUIRED, {
           messageId: uuid(),
           role: Role.AGENT,
@@ -231,6 +225,56 @@ export class OpenClawExecutor {
     } finally {
       clearInterval(heartbeat);
       eventBus.finish();
+    }
+  }
+
+  /**
+   * [EXPERIMENTAL] Agent-to-agent relay. When the message carries
+   * `metadata.relay = "<instance>"`, the answer from the source instance is fed
+   * as input to the target instance and both replies are returned as one
+   * artifact. Sync-only, one hop (the inner call uses the raw client, so it
+   * cannot recurse). If the target fails, the source answer is returned alone.
+   */
+  private async maybeRelay(
+    metadata: Record<string, unknown> | undefined,
+    sourceInstance: InstanceConfig,
+    content: string
+  ): Promise<Artifact> {
+    const artifactId = uuid();
+    const relayTarget = metadata?.relay as string | undefined;
+    if (!relayTarget) {
+      return { artifactId, parts: [{ text: content }] };
+    }
+
+    const target = getInstanceByName(this.config, relayTarget);
+    if (!target) {
+      throw new A2AError(
+        A2A_ERROR_CODES.INVALID_PARAMS,
+        `Unknown relay instance: "${relayTarget}"`
+      );
+    }
+
+    const relayPrompt = (metadata?.relayPrompt as string | undefined) ?? content;
+    logDebug('[EXPERIMENTAL] relaying answer to second instance', {
+      from: sourceInstance.name,
+      to: target.name,
+    });
+
+    try {
+      const relayResponse = await this.getClient(target).chat(relayPrompt);
+      const relayContent = relayResponse.choices[0]?.message?.content ?? '';
+      return {
+        artifactId,
+        parts: [{ text: content }, { text: relayContent }],
+        metadata: { relay: { from: sourceInstance.name, to: target.name } },
+      };
+    } catch (e) {
+      logError('[EXPERIMENTAL] relay target failed', e, { to: target.name });
+      return {
+        artifactId,
+        parts: [{ text: content }],
+        metadata: { relay: { from: sourceInstance.name, to: target.name, error: true } },
+      };
     }
   }
 

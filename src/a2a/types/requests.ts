@@ -96,6 +96,10 @@ export interface ListTaskPushNotificationConfigsRequest {
   taskId: string;
 }
 
+export interface ListTaskPushNotificationConfigsResponse {
+  configs: TaskPushNotificationConfig[];
+}
+
 export interface DeleteTaskPushNotificationConfigRequest {
   id: string;
   taskId: string;

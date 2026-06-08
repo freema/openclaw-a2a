@@ -1,6 +1,7 @@
 # A2A Protocol — v1.0
 
-This project implements the [A2A (Agent-to-Agent) protocol](https://google.github.io/A2A/) v1.0.
+This project implements the [A2A (Agent-to-Agent) protocol](https://a2a-protocol.org/) v1.0
+(reached 1.0 in March 2026, now stewarded by the Linux Foundation).
 
 ## Overview
 
@@ -30,11 +31,15 @@ The v1.0 Agent Card uses `supportedInterfaces[]` (not top-level `url`):
     "protocolVersion": "1.0"
   }],
   "capabilities": {
-    "streaming": true
+    "streaming": true,
+    "pushNotifications": true
   },
-  "skills": [...]
+  "skills": [...],
+  "signatures": [{ "protected": "...", "signature": "..." }]
 }
 ```
+
+The card is signed with a detached JWS (see [Signed Agent Cards](#signed-agent-cards)).
 
 ## Operations
 
@@ -141,3 +146,47 @@ A2A-Version: 1.0
 ```
 
 Per spec: if the header is missing or empty, it's interpreted as version `0.3`. Since this server only supports v1.0, requests without the header receive a `VersionNotSupportedError` (-32009).
+
+## Signed Agent Cards
+
+A2A v1.0 lets agents cryptographically sign their card so a consumer can verify it
+came from the expected domain. The bridge serves the card with a **detached JWS**
+(Ed25519 / `EdDSA`) in the `signatures[]` array and publishes the public key as a JWK:
+
+```bash
+curl http://localhost:3100/.well-known/jwks.json | jq .
+# { "keys": [{ "kty": "OKP", "crv": "Ed25519", "x": "...", "kid": "...", "alg": "EdDSA" }] }
+```
+
+**Verifying:** rebuild the signing input from the received card minus `signatures`,
+canonicalize it (sorted object keys, arrays untouched), base64url-encode it, then
+check `protected + "." + payloadB64` against the JWK using the `kid` in the protected
+header. Set `A2A_CARD_SIGNING_KEY` to a stable PEM key for a stable `kid` across restarts.
+
+## Push Notification Delivery
+
+Register a webhook (via `CreateTaskPushNotificationConfig` or inline on `SendMessage`
+through `configuration.pushNotificationConfig`) and the bridge POSTs `StreamResponse`
+payloads to it on **meaningful** events — status transitions and the final artifact,
+never per stream chunk:
+
+```json
+{ "statusUpdate": { "taskId": "...", "contextId": "...", "status": { "state": "TASK_STATE_COMPLETED" } } }
+```
+
+Headers: `X-A2A-Notification-Token` (from config `token`) and, if `authentication` is
+set, `Authorization: Bearer …` or `X-Api-Key: …`. Delivery is fire-and-forget — a
+failing or slow webhook (5s timeout) never blocks task execution.
+
+## Multi-tenancy
+
+When multiple instances are configured, each is exposed as an A2A tenant with its own
+signed card at `/.well-known/{instance}/agent-card.json` (`supportedInterfaces[].tenant`).
+The global card lists every instance as a skill. Select a tenant per-message with
+`metadata.instance`.
+
+## Authentication
+
+Set `A2A_AUTH_TOKEN` to require `Authorization: Bearer <token>` on `/a2a`. Failures
+return HTTP `401` + JSON-RPC error `-32000`. The card advertises this via
+`securitySchemes` / `security`; discovery endpoints stay public.

@@ -2,11 +2,13 @@
 
 import { Request, Response } from 'express';
 import { v4 as uuid } from 'uuid';
-import { AppConfig } from '../config/index.js';
 import { logDebug, logError } from '../utils/logger.js';
 import { A2AError, A2A_ERROR_CODES } from './errors.js';
 import { ExecutionEventBus } from './event-bus.js';
+import { TaskEventRegistry } from './event-registry.js';
 import { OpenClawExecutor, RequestContext } from './executor.js';
+import { InMemoryPushNotificationStore } from './push-store.js';
+import { PushNotificationSender } from './push-sender.js';
 import { formatSSEEvent, SSE_HEADERS } from './sse.js';
 import { InMemoryTaskStore } from './task-store.js';
 import { Task } from './types/core.js';
@@ -15,17 +17,28 @@ import { TERMINAL_STATES } from './types/enums.js';
 import {
   A2AMethod,
   CancelTaskRequest,
+  CreateTaskPushNotificationConfigRequest,
+  DeleteTaskPushNotificationConfigRequest,
+  GetTaskPushNotificationConfigRequest,
   GetTaskRequest,
+  ListTaskPushNotificationConfigsRequest,
   ListTasksRequest,
   SendMessageRequest,
+  SubscribeToTaskRequest,
 } from './types/requests.js';
 import { JSONRPCRequest, JSONRPCResponse } from './types/jsonrpc.js';
 
-export function createRequestHandler(
-  config: AppConfig,
-  taskStore: InMemoryTaskStore,
-  executor: OpenClawExecutor
-) {
+export interface HandlerDeps {
+  taskStore: InMemoryTaskStore;
+  executor: OpenClawExecutor;
+  pushStore: InMemoryPushNotificationStore;
+  pushSender: PushNotificationSender;
+  registry: TaskEventRegistry;
+}
+
+export function createRequestHandler(deps: HandlerDeps) {
+  const { taskStore, executor, pushStore, registry } = deps;
+
   return async (req: Request, res: Response) => {
     try {
       // Validate A2A-Version
@@ -40,10 +53,10 @@ export function createRequestHandler(
 
       switch (method) {
         case 'SendMessage':
-          return await handleSendMessage(rpcReq, res, config, taskStore, executor);
+          return await handleSendMessage(rpcReq, res, deps);
 
         case 'SendStreamingMessage':
-          return await handleSendStreamingMessage(rpcReq, res, config, taskStore, executor);
+          return await handleSendStreamingMessage(rpcReq, res, deps);
 
         case 'GetTask':
           return handleGetTask(rpcReq, res, taskStore);
@@ -55,18 +68,19 @@ export function createRequestHandler(
           return handleCancelTask(rpcReq, res, taskStore, executor);
 
         case 'SubscribeToTask':
-          return handleSubscribeToTask(rpcReq, res);
+          return handleSubscribeToTask(rpcReq, res, taskStore, registry);
 
         case 'CreateTaskPushNotificationConfig':
+          return handleCreatePushConfig(rpcReq, res, pushStore);
+
         case 'GetTaskPushNotificationConfig':
+          return handleGetPushConfig(rpcReq, res, pushStore);
+
         case 'ListTaskPushNotificationConfigs':
+          return handleListPushConfigs(rpcReq, res, pushStore);
+
         case 'DeleteTaskPushNotificationConfig':
-          return sendJsonRpcError(
-            res,
-            rpcReq.id,
-            A2A_ERROR_CODES.PUSH_NOTIFICATION_NOT_SUPPORTED,
-            'Push notifications are not supported'
-          );
+          return handleDeletePushConfig(rpcReq, res, pushStore);
 
         case 'GetExtendedAgentCard':
           return sendJsonRpcError(
@@ -135,13 +149,8 @@ function parseJsonRpcRequest(body: any): JSONRPCRequest {
 
 // --- Handlers ---
 
-async function handleSendMessage(
-  rpcReq: JSONRPCRequest,
-  res: Response,
-  config: AppConfig,
-  taskStore: InMemoryTaskStore,
-  executor: OpenClawExecutor
-) {
+async function handleSendMessage(rpcReq: JSONRPCRequest, res: Response, deps: HandlerDeps) {
+  const { taskStore, executor, pushStore, pushSender, registry } = deps;
   const params = rpcReq.params as SendMessageRequest;
   if (!params?.message) {
     return sendJsonRpcError(
@@ -154,6 +163,10 @@ async function handleSendMessage(
 
   const context = createTaskContext(params, taskStore);
   const eventBus = new ExecutionEventBus();
+
+  registerInlinePushConfig(params, context.task.id, pushStore);
+  pushSender.attach(context.task.id, eventBus);
+  registry.register(context.task.id, eventBus);
 
   // Execute synchronously — wait for completion
   await executor.execute(context, eventBus);
@@ -166,10 +179,9 @@ async function handleSendMessage(
 async function handleSendStreamingMessage(
   rpcReq: JSONRPCRequest,
   res: Response,
-  config: AppConfig,
-  taskStore: InMemoryTaskStore,
-  executor: OpenClawExecutor
+  deps: HandlerDeps
 ) {
+  const { taskStore, executor, pushStore, pushSender, registry } = deps;
   const params = rpcReq.params as SendMessageRequest;
   if (!params?.message) {
     return sendJsonRpcError(
@@ -182,6 +194,10 @@ async function handleSendStreamingMessage(
 
   const context = createTaskContext(params, taskStore);
   const eventBus = new ExecutionEventBus();
+
+  registerInlinePushConfig(params, context.task.id, pushStore);
+  pushSender.attach(context.task.id, eventBus);
+  registry.register(context.task.id, eventBus);
 
   // Set SSE headers
   res.writeHead(200, SSE_HEADERS);
@@ -280,16 +296,135 @@ function handleCancelTask(
   return sendJsonRpcResult(res, rpcReq.id, task);
 }
 
-function handleSubscribeToTask(rpcReq: JSONRPCRequest, res: Response) {
-  return sendJsonRpcError(
-    res,
-    rpcReq.id,
-    A2A_ERROR_CODES.UNSUPPORTED_OPERATION,
-    'SubscribeToTask is not yet supported'
-  );
+// --- Resubscribe ---
+
+function handleSubscribeToTask(
+  rpcReq: JSONRPCRequest,
+  res: Response,
+  taskStore: InMemoryTaskStore,
+  registry: TaskEventRegistry
+) {
+  const params = rpcReq.params as SubscribeToTaskRequest;
+  if (!params?.id) {
+    return sendJsonRpcError(res, rpcReq.id, A2A_ERROR_CODES.INVALID_PARAMS, 'Missing task id');
+  }
+
+  const task = taskStore.get(params.id);
+  if (!task) {
+    return sendJsonRpcError(
+      res,
+      rpcReq.id,
+      A2A_ERROR_CODES.TASK_NOT_FOUND,
+      `Task not found: ${params.id}`
+    );
+  }
+
+  res.writeHead(200, SSE_HEADERS);
+
+  // First event = current task state (prevents the get/subscribe race per spec)
+  res.write(formatSSEEvent({ jsonrpc: '2.0', id: rpcReq.id, result: { task } }));
+
+  const bus = registry.get(params.id);
+  if (TERMINAL_STATES.has(task.status.state) || !bus) {
+    // Already terminal (or no live execution) — nothing more to stream.
+    res.end();
+    return;
+  }
+
+  const off = bus.on((event) => {
+    res.write(formatSSEEvent({ jsonrpc: '2.0', id: rpcReq.id, result: event }));
+  });
+  bus.onFinish(() => res.end());
+  // Detach on client disconnect to avoid writing to a dead socket / leaking listeners.
+  res.on('close', () => off());
+}
+
+// --- Push notification config ---
+
+function handleCreatePushConfig(
+  rpcReq: JSONRPCRequest,
+  res: Response,
+  pushStore: InMemoryPushNotificationStore
+) {
+  const params = rpcReq.params as CreateTaskPushNotificationConfigRequest;
+  if (!params?.taskId || !params.pushNotificationConfig?.url) {
+    return sendJsonRpcError(
+      res,
+      rpcReq.id,
+      A2A_ERROR_CODES.INVALID_PARAMS,
+      'Missing taskId or pushNotificationConfig.url'
+    );
+  }
+  const stored = pushStore.create(params.taskId, params.pushNotificationConfig);
+  return sendJsonRpcResult(res, rpcReq.id, stored);
+}
+
+function handleGetPushConfig(
+  rpcReq: JSONRPCRequest,
+  res: Response,
+  pushStore: InMemoryPushNotificationStore
+) {
+  const params = rpcReq.params as GetTaskPushNotificationConfigRequest;
+  if (!params?.taskId || !params.id) {
+    return sendJsonRpcError(res, rpcReq.id, A2A_ERROR_CODES.INVALID_PARAMS, 'Missing taskId or id');
+  }
+  const config = pushStore.get(params.taskId, params.id);
+  if (!config) {
+    return sendJsonRpcError(
+      res,
+      rpcReq.id,
+      A2A_ERROR_CODES.TASK_NOT_FOUND,
+      `Push notification config not found: ${params.id}`
+    );
+  }
+  return sendJsonRpcResult(res, rpcReq.id, config);
+}
+
+function handleListPushConfigs(
+  rpcReq: JSONRPCRequest,
+  res: Response,
+  pushStore: InMemoryPushNotificationStore
+) {
+  const params = rpcReq.params as ListTaskPushNotificationConfigsRequest;
+  if (!params?.taskId) {
+    return sendJsonRpcError(res, rpcReq.id, A2A_ERROR_CODES.INVALID_PARAMS, 'Missing taskId');
+  }
+  return sendJsonRpcResult(res, rpcReq.id, { configs: pushStore.list(params.taskId) });
+}
+
+function handleDeletePushConfig(
+  rpcReq: JSONRPCRequest,
+  res: Response,
+  pushStore: InMemoryPushNotificationStore
+) {
+  const params = rpcReq.params as DeleteTaskPushNotificationConfigRequest;
+  if (!params?.taskId || !params.id) {
+    return sendJsonRpcError(res, rpcReq.id, A2A_ERROR_CODES.INVALID_PARAMS, 'Missing taskId or id');
+  }
+  const deleted = pushStore.delete(params.taskId, params.id);
+  if (!deleted) {
+    return sendJsonRpcError(
+      res,
+      rpcReq.id,
+      A2A_ERROR_CODES.TASK_NOT_FOUND,
+      `Push notification config not found: ${params.id}`
+    );
+  }
+  return sendJsonRpcResult(res, rpcReq.id, {});
 }
 
 // --- Task context creation ---
+
+function registerInlinePushConfig(
+  params: SendMessageRequest,
+  taskId: string,
+  pushStore: InMemoryPushNotificationStore
+) {
+  const config = params.configuration?.pushNotificationConfig;
+  if (config?.url) {
+    pushStore.create(taskId, config);
+  }
+}
 
 function createTaskContext(
   params: SendMessageRequest,

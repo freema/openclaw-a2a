@@ -29,6 +29,10 @@ const argv = yargs(hideBin(process.argv))
     type: 'string',
     description: 'OpenClaw Gateway token',
   })
+  .option('auth-token', {
+    type: 'string',
+    description: 'Require this Bearer token on the /a2a endpoint',
+  })
   .option('debug', {
     type: 'boolean',
     description: 'Enable debug logging',
@@ -40,6 +44,7 @@ if (argv.port) process.env.PORT = String(argv.port);
 if (argv.host) process.env.HOST = argv.host;
 if (argv['openclaw-url']) process.env.OPENCLAW_URL = argv['openclaw-url'] as string;
 if (argv.token) process.env.OPENCLAW_GATEWAY_TOKEN = argv.token;
+if (argv['auth-token']) process.env.A2A_AUTH_TOKEN = argv['auth-token'] as string;
 if (argv.debug) process.env.DEBUG = 'true';
 
 const config = loadConfig();

@@ -2,15 +2,27 @@
 
 import express from 'express';
 import { AppConfig } from '../config/index.js';
+import { CardSigner } from '../a2a/card-signer.js';
+import { TaskEventRegistry } from '../a2a/event-registry.js';
 import { OpenClawExecutor } from '../a2a/executor.js';
+import { InMemoryPushNotificationStore } from '../a2a/push-store.js';
+import { PushNotificationSender } from '../a2a/push-sender.js';
 import { createA2ARouter } from '../a2a/router.js';
 import { InMemoryTaskStore } from '../a2a/task-store.js';
 import { log } from '../utils/logger.js';
+
+declare const __PKG_VERSION__: string;
+
+const VERSION = typeof __PKG_VERSION__ !== 'undefined' ? __PKG_VERSION__ : '0.0.0-dev';
 
 export function createApp(config: AppConfig) {
   const app = express();
   const taskStore = new InMemoryTaskStore();
   const executor = new OpenClawExecutor(config, taskStore);
+  const pushStore = new InMemoryPushNotificationStore();
+  const pushSender = new PushNotificationSender(pushStore);
+  const registry = new TaskEventRegistry();
+  const cardSigner = CardSigner.fromConfig(config);
 
   // Middleware
   app.use(express.json({ limit: '10mb' }));
@@ -19,7 +31,7 @@ export function createApp(config: AppConfig) {
   app.get('/health', (_req, res) => {
     res.json({
       status: 'ok',
-      version: '0.1.0-beta.1',
+      version: VERSION,
       a2aVersion: '1.0',
       uptime: process.uptime(),
     });
@@ -37,9 +49,11 @@ export function createApp(config: AppConfig) {
   });
 
   // Mount A2A router
-  app.use(createA2ARouter(config, taskStore, executor));
+  app.use(
+    createA2ARouter({ config, taskStore, executor, pushStore, pushSender, registry, cardSigner })
+  );
 
-  return { app, taskStore, executor };
+  return { app, taskStore, executor, pushStore, pushSender, registry, cardSigner };
 }
 
 export function startServer(config: AppConfig) {
@@ -51,8 +65,10 @@ export function startServer(config: AppConfig) {
       host: config.host,
       publicUrl: config.publicUrl,
       instances: config.instances.length,
+      authRequired: !!config.authToken,
     });
     log(`Agent Card: ${config.publicUrl}/.well-known/agent-card.json`);
+    log(`JWKS: ${config.publicUrl}/.well-known/jwks.json`);
     log(`A2A endpoint: ${config.publicUrl}/a2a`);
   });
 

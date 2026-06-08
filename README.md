@@ -15,8 +15,21 @@ self-hosted [OpenClaw](https://openclaw.ai) assistant. Think of it as giving you
 OpenClaw a phone number that other agents can call.
 
 This is a **beta experiment**. We're exploring the bleeding edge of agent-to-agent
-communication using Google's [A2A protocol](https://google.github.io/A2A/) v1.0.
-The JS SDK is still on v0.3, so we implemented v1.0 from scratch. YOLO.
+communication using the [A2A protocol](https://a2a-protocol.org/) v1.0 (now stewarded
+by the Linux Foundation). The JS SDK is still on v0.3, so we implemented v1.0 from
+scratch. YOLO.
+
+### ✨ New in 0.2.0-beta
+
+The stubs grew up. This release turns three `UNSUPPORTED` placeholders into real
+features and adds two of A2A v1.0's flagship capabilities:
+
+- **Real push notifications** — register a webhook and the bridge POSTs task events to it
+- **Signed Agent Cards** — detached JWS signatures (Ed25519) + a `/.well-known/jwks.json` endpoint
+- **SubscribeToTask** — reconnect to an in-flight task's event stream
+- **Multi-tenancy** — every OpenClaw instance gets its own A2A agent card (`/.well-known/{instance}/agent-card.json`)
+- **Bearer auth** — optionally lock down `/a2a` while keeping discovery public
+- **Agent-to-agent relay** 🧪 — chain one instance's answer into another (experimental)
 
 ## The Idea
 
@@ -109,9 +122,12 @@ curl -N -X POST http://localhost:3100/a2a \
 | `OPENCLAW_URL` | — | OpenClaw Gateway URL (required) |
 | `OPENCLAW_GATEWAY_TOKEN` | — | Bearer token for gateway auth |
 | `OPENCLAW_INSTANCES` | — | JSON array for multi-instance routing |
+| `OPENCLAW_MODEL` | `openclaw` | Model name for chat completions |
 | `PORT` | `3100` | Server port |
 | `HOST` | `0.0.0.0` | Server host |
 | `PUBLIC_URL` | `http://localhost:3100` | Public URL for Agent Card |
+| `A2A_AUTH_TOKEN` | — | Require this Bearer token on `/a2a` (discovery stays public) |
+| `A2A_CARD_SIGNING_KEY` | — | PEM Ed25519 key to sign the Agent Card (ephemeral if unset) |
 | `DEBUG` | `false` | Enable debug logging |
 
 ### Multi-instance
@@ -137,6 +153,7 @@ Options:
   --host            Server host                    [string]
   --openclaw-url    OpenClaw Gateway URL           [string]
   --token           OpenClaw Gateway token         [string]
+  --auth-token      Bearer token required on /a2a  [string]
   --debug           Enable debug logging           [boolean]
 ```
 
@@ -151,12 +168,16 @@ This implements the **A2A v1.0 specification** — the full protocol, not a subs
 | SendStreamingMessage (SSE) | Done |
 | GetTask / ListTasks | Done |
 | CancelTask | Done |
+| SubscribeToTask (resubscribe) | Done ✨ new in 0.2 |
+| Push notifications (real webhooks) | Done ✨ new in 0.2 |
+| Signed Agent Cards (JWS + JWKS) | Done ✨ new in 0.2 |
+| Per-instance agents (multi-tenancy) | Done ✨ new in 0.2 |
+| Bearer auth on `/a2a` | Done ✨ new in 0.2 |
+| Agent-to-agent relay | Experimental 🧪 new in 0.2 |
 | Multi-turn conversations (INPUT_REQUIRED) | Done |
 | Multi-instance routing | Done |
 | A2A-Version header validation | Done |
-| Push notifications | Stub (returns UNSUPPORTED) |
 | Extended Agent Card | Stub (returns UNSUPPORTED) |
-| SubscribeToTask | Stub (returns UNSUPPORTED) |
 
 ### v1.0 Spec Compliance
 

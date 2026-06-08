@@ -2,6 +2,7 @@
 
 import { Request, Response } from 'express';
 import { v4 as uuid } from 'uuid';
+import { AppConfig } from '../config/index.js';
 import { logDebug, logError } from '../utils/logger.js';
 import { A2AError, A2A_ERROR_CODES } from './errors.js';
 import { ExecutionEventBus } from './event-bus.js';
@@ -11,6 +12,7 @@ import { InMemoryPushNotificationStore } from './push-store.js';
 import { PushNotificationSender } from './push-sender.js';
 import { formatSSEEvent, SSE_HEADERS } from './sse.js';
 import { InMemoryTaskStore } from './task-store.js';
+import { assertSafeWebhookUrl } from './webhook-url.js';
 import { Task } from './types/core.js';
 import { TaskState } from './types/enums.js';
 import { TERMINAL_STATES } from './types/enums.js';
@@ -22,13 +24,18 @@ import {
   GetTaskPushNotificationConfigRequest,
   GetTaskRequest,
   ListTaskPushNotificationConfigsRequest,
+  ListTaskPushNotificationConfigsResponse,
   ListTasksRequest,
   SendMessageRequest,
   SubscribeToTaskRequest,
+  TaskPushNotificationConfig,
 } from './types/requests.js';
 import { JSONRPCRequest, JSONRPCResponse } from './types/jsonrpc.js';
 
+const MAX_PUSH_CONFIGS_PER_TASK = 10;
+
 export interface HandlerDeps {
+  config: AppConfig;
   taskStore: InMemoryTaskStore;
   executor: OpenClawExecutor;
   pushStore: InMemoryPushNotificationStore;
@@ -37,7 +44,7 @@ export interface HandlerDeps {
 }
 
 export function createRequestHandler(deps: HandlerDeps) {
-  const { taskStore, executor, pushStore, registry } = deps;
+  const { config, taskStore, executor, pushStore, registry } = deps;
 
   return async (req: Request, res: Response) => {
     try {
@@ -71,7 +78,7 @@ export function createRequestHandler(deps: HandlerDeps) {
           return handleSubscribeToTask(rpcReq, res, taskStore, registry);
 
         case 'CreateTaskPushNotificationConfig':
-          return handleCreatePushConfig(rpcReq, res, pushStore);
+          return handleCreatePushConfig(rpcReq, res, taskStore, pushStore, config);
 
         case 'GetTaskPushNotificationConfig':
           return handleGetPushConfig(rpcReq, res, pushStore);
@@ -150,7 +157,7 @@ function parseJsonRpcRequest(body: any): JSONRPCRequest {
 // --- Handlers ---
 
 async function handleSendMessage(rpcReq: JSONRPCRequest, res: Response, deps: HandlerDeps) {
-  const { taskStore, executor, pushStore, pushSender, registry } = deps;
+  const { config, taskStore, executor, pushStore, pushSender, registry } = deps;
   const params = rpcReq.params as SendMessageRequest;
   if (!params?.message) {
     return sendJsonRpcError(
@@ -164,7 +171,7 @@ async function handleSendMessage(rpcReq: JSONRPCRequest, res: Response, deps: Ha
   const context = createTaskContext(params, taskStore);
   const eventBus = new ExecutionEventBus();
 
-  registerInlinePushConfig(params, context.task.id, pushStore);
+  registerInlinePushConfig(params, context.task.id, pushStore, config);
   pushSender.attach(context.task.id, eventBus);
   registry.register(context.task.id, eventBus);
 
@@ -181,7 +188,7 @@ async function handleSendStreamingMessage(
   res: Response,
   deps: HandlerDeps
 ) {
-  const { taskStore, executor, pushStore, pushSender, registry } = deps;
+  const { config, taskStore, executor, pushStore, pushSender, registry } = deps;
   const params = rpcReq.params as SendMessageRequest;
   if (!params?.message) {
     return sendJsonRpcError(
@@ -195,7 +202,7 @@ async function handleSendStreamingMessage(
   const context = createTaskContext(params, taskStore);
   const eventBus = new ExecutionEventBus();
 
-  registerInlinePushConfig(params, context.task.id, pushStore);
+  registerInlinePushConfig(params, context.task.id, pushStore, config);
   pushSender.attach(context.task.id, eventBus);
   registry.register(context.task.id, eventBus);
 
@@ -204,6 +211,7 @@ async function handleSendStreamingMessage(
 
   // Subscribe to events and forward as SSE
   eventBus.on((event) => {
+    if (res.writableEnded) return;
     const rpcResponse: JSONRPCResponse = {
       jsonrpc: '2.0',
       id: rpcReq.id,
@@ -213,7 +221,12 @@ async function handleSendStreamingMessage(
   });
 
   eventBus.onFinish(() => {
-    res.end();
+    if (!res.writableEnded) res.end();
+  });
+
+  // Cancel the task if the client disconnects mid-stream (stop wasting upstream work).
+  res.on('close', () => {
+    if (!eventBus.finished) executor.cancelTask(context.task.id);
   });
 
   // Execute streaming (fire and forget — events are pushed via SSE)
@@ -332,11 +345,18 @@ function handleSubscribeToTask(
   }
 
   const off = bus.on((event) => {
-    res.write(formatSSEEvent({ jsonrpc: '2.0', id: rpcReq.id, result: event }));
+    if (!res.writableEnded) {
+      res.write(formatSSEEvent({ jsonrpc: '2.0', id: rpcReq.id, result: event }));
+    }
   });
-  bus.onFinish(() => res.end());
-  // Detach on client disconnect to avoid writing to a dead socket / leaking listeners.
-  res.on('close', () => off());
+  const offFinish = bus.onFinish(() => {
+    if (!res.writableEnded) res.end();
+  });
+  // Detach both listeners on client disconnect (avoid writing to a dead socket / leaks).
+  res.on('close', () => {
+    off();
+    offFinish();
+  });
 }
 
 // --- Push notification config ---
@@ -344,7 +364,9 @@ function handleSubscribeToTask(
 function handleCreatePushConfig(
   rpcReq: JSONRPCRequest,
   res: Response,
-  pushStore: InMemoryPushNotificationStore
+  taskStore: InMemoryTaskStore,
+  pushStore: InMemoryPushNotificationStore,
+  config: AppConfig
 ) {
   const params = rpcReq.params as CreateTaskPushNotificationConfigRequest;
   if (!params?.taskId || !params.pushNotificationConfig?.url) {
@@ -353,6 +375,25 @@ function handleCreatePushConfig(
       rpcReq.id,
       A2A_ERROR_CODES.INVALID_PARAMS,
       'Missing taskId or pushNotificationConfig.url'
+    );
+  }
+  // SSRF guard — throws A2AError (INVALID_PARAMS) on unsafe URLs.
+  assertSafeWebhookUrl(params.pushNotificationConfig.url, config.pushAllowedHosts);
+  // Spec: configs are scoped to an existing task; this also blocks arbitrary-id memory growth.
+  if (!taskStore.get(params.taskId)) {
+    return sendJsonRpcError(
+      res,
+      rpcReq.id,
+      A2A_ERROR_CODES.TASK_NOT_FOUND,
+      `Task not found: ${params.taskId}`
+    );
+  }
+  if (pushStore.list(params.taskId).length >= MAX_PUSH_CONFIGS_PER_TASK) {
+    return sendJsonRpcError(
+      res,
+      rpcReq.id,
+      A2A_ERROR_CODES.INVALID_PARAMS,
+      `Too many push configs for task (max ${MAX_PUSH_CONFIGS_PER_TASK})`
     );
   }
   const stored = pushStore.create(params.taskId, params.pushNotificationConfig);
@@ -377,7 +418,7 @@ function handleGetPushConfig(
       `Push notification config not found: ${params.id}`
     );
   }
-  return sendJsonRpcResult(res, rpcReq.id, config);
+  return sendJsonRpcResult(res, rpcReq.id, redactConfig(config));
 }
 
 function handleListPushConfigs(
@@ -389,7 +430,19 @@ function handleListPushConfigs(
   if (!params?.taskId) {
     return sendJsonRpcError(res, rpcReq.id, A2A_ERROR_CODES.INVALID_PARAMS, 'Missing taskId');
   }
-  return sendJsonRpcResult(res, rpcReq.id, { configs: pushStore.list(params.taskId) });
+  const response: ListTaskPushNotificationConfigsResponse = {
+    configs: pushStore.list(params.taskId).map(redactConfig),
+  };
+  return sendJsonRpcResult(res, rpcReq.id, response);
+}
+
+/** Strip webhook secrets (token, credentials) before returning a config to a reader. */
+function redactConfig(config: TaskPushNotificationConfig): TaskPushNotificationConfig {
+  const { token: _token, authentication, ...rest } = config;
+  return {
+    ...rest,
+    ...(authentication ? { authentication: { schemes: authentication.schemes } } : {}),
+  };
 }
 
 function handleDeletePushConfig(
@@ -418,12 +471,17 @@ function handleDeletePushConfig(
 function registerInlinePushConfig(
   params: SendMessageRequest,
   taskId: string,
-  pushStore: InMemoryPushNotificationStore
+  pushStore: InMemoryPushNotificationStore,
+  config: AppConfig
 ) {
-  const config = params.configuration?.pushNotificationConfig;
-  if (config?.url) {
-    pushStore.create(taskId, config);
-  }
+  const inline = params.configuration?.pushNotificationConfig;
+  if (!inline?.url) return;
+  // SSRF guard — throws A2AError on unsafe URLs (rejects the whole request).
+  assertSafeWebhookUrl(inline.url, config.pushAllowedHosts);
+  // Dedup: a multi-turn conversation re-using the same task must not stack duplicate
+  // webhooks (which would multiply deliveries). Same URL already registered → no-op.
+  if (pushStore.list(taskId).some((c) => c.url === inline.url)) return;
+  pushStore.create(taskId, inline);
 }
 
 function createTaskContext(

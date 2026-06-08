@@ -14,6 +14,7 @@
 | `DEBUG` | `false` | No | Enable debug logging |
 | `A2A_AUTH_TOKEN` | — | No | Bearer token required on `/a2a` (discovery stays public) |
 | `A2A_CARD_SIGNING_KEY` | — | No | PEM Ed25519 key to sign the Agent Card (ephemeral if unset) |
+| `A2A_PUSH_ALLOWED_HOSTS` | — | No | Comma-separated webhook host allowlist for push notifications |
 
 *Either `OPENCLAW_URL` or `OPENCLAW_INSTANCES` must be set.
 

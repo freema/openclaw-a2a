@@ -82,9 +82,11 @@ describe('Request Handler — JSON-RPC Dispatch', () => {
 
   describe('Push notification methods', () => {
     it('CreateTaskPushNotificationConfig returns a stored config', async () => {
+      const created = await sendMessage();
+      const taskId = created.body.result.id;
       const res = await sendRpc('CreateTaskPushNotificationConfig', {
-        taskId: 't1',
-        pushNotificationConfig: { taskId: 't1', url: 'http://x' },
+        taskId,
+        pushNotificationConfig: { taskId, url: 'http://callback.example.com' },
       });
       expect(res.body.error).toBeUndefined();
       expect(res.body.result.id).toBeDefined();

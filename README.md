@@ -128,6 +128,7 @@ curl -N -X POST http://localhost:3100/a2a \
 | `PUBLIC_URL` | `http://localhost:3100` | Public URL for Agent Card |
 | `A2A_AUTH_TOKEN` | — | Require this Bearer token on `/a2a` (discovery stays public) |
 | `A2A_CARD_SIGNING_KEY` | — | PEM Ed25519 key to sign the Agent Card (ephemeral if unset) |
+| `A2A_PUSH_ALLOWED_HOSTS` | — | Comma-separated webhook host allowlist (SSRF guard) |
 | `DEBUG` | `false` | Enable debug logging |
 
 ### Multi-instance

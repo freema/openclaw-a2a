@@ -16,10 +16,13 @@ export class PushNotificationSender {
 
   /** Attach a delivery listener to a task's event bus for the lifetime of execution. */
   attach(taskId: string, eventBus: ExecutionEventBus): void {
+    // Per-execution dedup so repeated heartbeat WORKING ticks aren't re-delivered.
+    let lastState: string | undefined;
     eventBus.on((event) => {
       // Guard: a throw here would break the bus publish loop (and the SSE writer).
       try {
-        if (!this.isMeaningful(event)) return;
+        if (!this.isMeaningful(event, lastState)) return;
+        if (event.statusUpdate) lastState = event.statusUpdate.status.state;
         const configs = this.store.getAllForTask(taskId);
         for (const config of configs) {
           void this.deliver(config, event, taskId);
@@ -30,9 +33,12 @@ export class PushNotificationSender {
     });
   }
 
-  /** Only status transitions and final/non-append artifacts warrant a webhook. */
-  private isMeaningful(event: StreamResponse): boolean {
-    if (event.statusUpdate) return true;
+  /**
+   * Worth a webhook only for genuine status transitions (state differs from the
+   * last delivered one — skips heartbeat re-publishes) and final/non-append artifacts.
+   */
+  private isMeaningful(event: StreamResponse, lastState: string | undefined): boolean {
+    if (event.statusUpdate) return event.statusUpdate.status.state !== lastState;
     if (event.artifactUpdate && event.artifactUpdate.append !== true) return true;
     return false;
   }

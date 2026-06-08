@@ -178,6 +178,12 @@ Headers: `X-A2A-Notification-Token` (from config `token`) and, if `authenticatio
 set, `Authorization: Bearer …` or `X-Api-Key: …`. Delivery is fire-and-forget — a
 failing or slow webhook (5s timeout) never blocks task execution.
 
+**SSRF protection:** webhook URLs are validated at registration — only `http(s)` is
+allowed, and loopback/private/link-local/cloud-metadata addresses are rejected. Set
+`A2A_PUSH_ALLOWED_HOSTS` to an explicit allowlist to permit specific internal hosts.
+Stored `token`/`authentication.credentials` are redacted from `Get`/`List` responses.
+(DNS-rebinding is not fully mitigated — run with an egress firewall for hard guarantees.)
+
 ## Multi-tenancy
 
 When multiple instances are configured, each is exposed as an A2A tenant with its own

@@ -18,6 +18,8 @@ export interface AppConfig {
   authToken?: string;
   /** PEM-encoded Ed25519 private key used to sign Agent Cards. When unset, an ephemeral key is generated. */
   cardSigningKey?: string;
+  /** Allowlist of webhook hosts for push notifications. When set, only these hosts are accepted. */
+  pushAllowedHosts?: string[];
 }
 
 function parseInstances(): InstanceConfig[] {
@@ -70,8 +72,23 @@ export function loadConfig(): AppConfig {
   const instances = parseInstances();
   const authToken = process.env.A2A_AUTH_TOKEN || undefined;
   const cardSigningKey = process.env.A2A_CARD_SIGNING_KEY || undefined;
+  const pushAllowedHosts = process.env.A2A_PUSH_ALLOWED_HOSTS
+    ? process.env.A2A_PUSH_ALLOWED_HOSTS.split(',')
+        .map((h) => h.trim().toLowerCase())
+        .filter(Boolean)
+    : undefined;
 
-  return { port, host, debug, publicUrl, model, instances, authToken, cardSigningKey };
+  return {
+    port,
+    host,
+    debug,
+    publicUrl,
+    model,
+    instances,
+    authToken,
+    cardSigningKey,
+    pushAllowedHosts,
+  };
 }
 
 export function getDefaultInstance(config: AppConfig): InstanceConfig {

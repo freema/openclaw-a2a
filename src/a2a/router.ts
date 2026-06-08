@@ -25,7 +25,14 @@ export interface RouterDeps {
 export function createA2ARouter(deps: RouterDeps): Router {
   const { config, taskStore, executor, pushStore, pushSender, registry, cardSigner } = deps;
   const router = Router();
-  const handler = createRequestHandler({ taskStore, executor, pushStore, pushSender, registry });
+  const handler = createRequestHandler({
+    config,
+    taskStore,
+    executor,
+    pushStore,
+    pushSender,
+    registry,
+  });
 
   const authRequired = !!config.authToken;
 

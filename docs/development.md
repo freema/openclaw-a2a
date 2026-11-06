@@ -105,7 +105,7 @@ src/
 ## CI
 
 GitHub Actions runs on every push/PR:
-- **Node 20 + 22** matrix
+- **Node 20 + 22 + 24** matrix
 - lint, format:check, typecheck, build, test
 - Artifacts uploaded for Node 20
 

@@ -8,6 +8,6 @@ export default defineConfig({
     globalSetup: ['tests/e2e/global-setup.ts'],
     // Sequential — E2E tests share server state
     pool: 'forks',
-    poolOptions: { forks: { singleFork: true } },
+    fileParallelism: false,
   },
 });

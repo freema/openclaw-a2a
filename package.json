@@ -1,13 +1,13 @@
 {
   "name": "openclaw-a2a",
-  "version": "0.2.0-beta.1",
+  "version": "0.2.0-beta.2",
   "description": "A2A v1.0 bridge for OpenClaw AI assistant — agent-to-agent communication",
   "author": "Tomas Grasl <https://www.tomasgrasl.cz/>",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "openclaw-a2a": "./dist/index.js"
+    "openclaw-a2a": "dist/index.js"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -39,8 +39,8 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "express": "^4.21.2",
-    "uuid": "^11.1.0",
+    "express": "^4.22.3",
+    "uuid": "^11.1.1",
     "yargs": "^17.7.2"
   },
   "devDependencies": {
@@ -49,8 +49,8 @@
     "@types/supertest": "^6.0.2",
     "@types/uuid": "^10.0.0",
     "@types/yargs": "^17.0.32",
-    "@typescript-eslint/eslint-plugin": "^6.21.0",
-    "@typescript-eslint/parser": "^6.21.0",
+    "@typescript-eslint/eslint-plugin": "^8.72.1",
+    "@typescript-eslint/parser": "^8.72.1",
     "eslint": "^8.57.1",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.2.1",
@@ -59,7 +59,7 @@
     "tsup": "^8.0.0",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3",
-    "vitest": "^2.0.0"
+    "vitest": "^4.1.12"
   },
   "files": [
     "dist",
